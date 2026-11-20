@@ -1,340 +1,104 @@
-# CheckSites
+# CheckSites (`checksites.sh`)
 
-Readme: [BR](README-ptbr.md)
+Readme: [PT-BR](README-ptbr.md)
 
 ![License](https://img.shields.io/github/license/sr00t3d/checksites) ![Shell Script](https://img.shields.io/badge/language-Bash-green.svg)
 
-<img width="700" src="checksites-cover.webp" />
+<img width="700" alt="CheckSites" src="checksites-cover.webp" />
 
-> **Bash rewrite of the original Perl checksites utility by Matthew Harris (HostGator)**
+A fast, concurrent Bash + Python3 (stdlib) CLI diagnostics tool for auditing website availability across **cPanel/WHM**, **Plesk**, **DirectAdmin**, **HestiaPanel**, or standalone domain lists. Checks DNS resolution, HTTPS/HTTP status codes, TTFB latency (`ms`), SSL certificate expiration days, and critical content/server error signatures in parallel, exporting results in `table`, `json`, or `csv`.
 
-A fast and efficient Bash script to check the status of websites hosted on cPanel/WHM and Plesk servers. Designed to detect DNS issues, HTTP errors, and common website problems.
+## Features (v2.0.0)
 
-## About
+* **Multi-Panel & Standalone Discovery:** Auto-discovers hosted domains from cPanel/WHM (`/etc/userdomains` & `/var/cpanel/users`), Plesk (`psa.domains`), DirectAdmin, HestiaPanel, or runs standalone with `-d <domain>` / `-f <file>`.
+* **Concurrent Multi-Thread Scanning (`-j, --jobs`):** Audits hundreds of websites in seconds using a configurable worker pool (default `8`), automatically throttling down if host Load Average spikes (`--ignore-load` to bypass).
+* **Full-Stack Probes (DNS + HTTPS/HTTP + TTFB + SSL + Content):**
+  * Checks DNS resolution (with optional `--strict-dns` to flag external/CDN pointers).
+  * Probes HTTPS first with automatic HTTP fallback, measuring TTFB in milliseconds.
+  * Inspects SSL certificate validity and remaining days (`--ssl-warn 15`).
+  * Detects cPanel/Plesk Default Pages, Suspended Accounts, Database/MySQL Errors, WordPress/PHP Fatal Errors, Directory Listings, and precise webshell/defacement markers without false positives on tech blogs.
+* **Structured Output (`-o table|json|csv`) & Semantic Exit Codes:** `0` = all healthy, `1` = runtime error, `2` = one or more sites have issues.
 
-This project is a **Bash rewrite** of the original Perl script `checksites` created by **Matthew Harris** at HostGator in 2013. The original script was designed to check the status of multiple websites on shared hosting servers.
+## Prerequisites
 
-### Why a Bash Rewrite?
+* `bash` 4.0+
+* `python3` (standard library only — zero `pip` packages)
+* Optional: `mysql` CLI (for Plesk `--all` discovery)
 
-- **No Perl dependencies** - Uses standard Unix tools
-- **Faster execution** - Native shell operations vs Perl interpreter
-- **Easier maintenance** - Simpler code structure
-- **Better portability** - Works on any modern Linux system
-- **Same functionality** - 100% compatible with original options
+## Usage & Options
 
-## Original Reference
+```text
+CheckSites v2.0.0
+Fast concurrent website & hosting health monitor (cPanel/WHM, Plesk, DirectAdmin, HestiaPanel, or custom lists).
 
-```perl
-#!/usr/bin/perl
-# $Date: 2013-08-24 $
-# $Revision: 3.5 $
-# $Source: /root/bin/checksites $
-# $Author: Matthew Harris $
-# Tool for checking status of multiple sites
-# https://gatorwiki.hostgator.com/Admin/RootBin#checksites 
-# http://git.toolbox.hostgator.com/checksites 
-# Please submit all bug reports at bugs.hostgator.com
+Usage:
+  checksites.sh [SCOPE] [OPTIONS]
+
+Scope (pick one):
+  -a, --all                 Scan all domains hosted on the detected panel
+  -d, --domain <domain>     Check one or more specific domains (can be repeated)
+  -f, --file <path>         Read domains from file (one per line, # comments ignored)
+  -u, --user <user>         Scan all domains of a cPanel/Hestia/DirectAdmin user
+  -r, --reseller <reseller> Scan all domains under a cPanel reseller
+
+Options:
+  -v, --verbose             Show all checked sites including healthy HTTP 200
+  -e, --only-issues         Show only sites with DNS, HTTP, SSL, or content issues
+      --strict-dns          Flag & skip HTTP check when DNS points outside this server
+  -j, --jobs <num>          Concurrent worker threads (default: 8)
+  -t, --timeout <sec>       HTTP/SSL request timeout in seconds (default: 8)
+      --ssl-warn <days>     Warn when SSL certificate expires in <= N days (default: 15)
+      --ignore-load         Skip host Load Average guard
+  -o, --output <fmt>        Output format: table (default), json, csv
 ```
 
-**Original Author**: Matthew Harris (HostGator)  
-**Original Date**: 2013-08-24  
-**Original Version**: 3.5  
-**Original Purpose**: Check status of multiple sites on shared hosting servers
+## Practical Examples
 
-## Features
-
-| Feature | Description | Original | This Version |
-|---------|-------------|----------|--------------|
-| Check all domains | Scan all websites on server | ✅ | ✅ |
-| Check by user | Scan all domains of a cPanel user | ✅ | ✅ |
-| Check by reseller | Scan all domains under a reseller | ✅ | ✅ |
-| Single domain check | Check specific domain | ✅ | ✅ |
-| DNS verification | Verify if domain resolves to server | ✅ | ✅ |
-| HTTP status check | Verify HTTP response codes | ✅ | ✅ |
-| Content detection | Detect default pages, hacks, errors | ✅ | ✅ |
-| Load average protection | Pause if server load is high | ✅ | ✅ |
-| Verbose mode | Show working sites too | ✅ | ✅ |
-| cPanel support | Read cPanel user data | ✅ | ✅ |
-| Plesk support | Query Plesk database | ✅ | ✅ |
-| Timeout control | Adjustable HTTP timeout | ✅ | ✅ |
-
-## Requirements
-
-- **Bash** 4.0+
-- **cPanel/WHM** OR **Plesk** server
-- Root or sudo access (to read system files)
-- Standard Unix tools: `curl`, `dig`, `mysql`, `grep`, `sed`, `awk`
-
-## Installation
-
+**Check specific domains with DNS, HTTPS, TTFB, and SSL expiry:**
 ```bash
-# Clone or download
-curl -O https://raw.githubusercontent.com/sr00t3d/checksites/refs/heads/main/checksites.sh
-
-# Make executable
-chmod +x checksites.sh
-
-# Optional: move to PATH
-sudo mv checksites.sh /usr/local/bin/checksites
+./checksites.sh -d perciocastelo.com.br -d example.com
 ```
 
-## Dependencies
-
-### CentOS/RHEL/AlmaLinux/Rocky Linux
+**Audit all hosted domains on cPanel/Plesk (12 workers, issues only):**
 ```bash
-sudo yum install curl bind-utils mysql bc
-# or
-sudo dnf install curl bind-utils mysql bc
+sudo ./checksites.sh -a -j 12
 ```
 
-### Ubuntu/Debian
+**Export structured JSON for SIEM / Zabbix / incident tickets:**
 ```bash
-sudo apt-get update
-sudo apt-get install curl dnsutils mysql-client bc
+./checksites.sh -a -v -o json > sites-audit.json
 ```
 
-## Usage
-
+**Scan a custom list of domains and export CSV:**
 ```bash
-./checksites.sh [OPTIONS]
+./checksites.sh -f domains.txt -o csv > health.csv
 ```
 
-### Options
+## Real Output Example
 
-| Option | Long Form | Description | Default |
-|--------|-----------|-------------|---------|
-| `-a` | `--all` | Check all domains on server | - |
-| `-d` | `--domain` | Check specific domain | - |
-| `-u` | `--user` | Check all domains of cPanel user | - |
-| `-r` | `--reseller` | Check all domains under reseller | - |
-| `-v` | `--verbose` | Show working websites (HTTP 200) | Disabled |
-| `-t` | `--timeout` | HTTP request timeout in seconds | 5 |
-| `-s` | `--sleep` | Sleep time for load check | 10 |
-| `-h` | `--help` | Show help message | - |
-
-## Examples
-
-### 1. Check All Domains (Issues Only)
-
-Show only problematic websites:
-
-```bash
-./checksites.sh -a
+```text
+==================================================================================================================
+ CHECKSITES v2.0.0 | Panel: cpanel | Checked: 3 domain(s) | Workers: 8
+==================================================================================================================
+DOMAIN                           | IP              | HTTP  | TTFB    | SSL    | STATUS        | DETAIL
+------------------------------------------------------------------------------------------------------------------
+example.com                      | 104.20.23.154   | 200   | 66ms    | 35d    | OK            | Healthy
+nonexistent-lab-99999.invalid    | -               | ERR   | 0ms     | -      | DNS_ERROR     | Domain does not resolve
+perciocastelo.com.br             | 172.64.80.1     | 200   | 95ms    | 89d    | OK            | Healthy
+==================================================================================================================
+ Summary: 3 checked | Healthy: 2 | Issues: 1
+==================================================================================================================
 ```
-
-**Output:**
-```bash
-DOMAIN                                             ISSUE/STATUS                                      
-[!] http://expired-domain.com                      Non-existent or DNS Error
-[!] http://old-site.com                            Points to 192.168.1.100
-[!] http://suspended-account.com                   Suspended Account
-[!] http://hacked-site.com                       Possibly Hacked -> Manually Confirm
-[!] http://db-error-site.com                       Database Error
-[!] http://default-page.com                        Cpanel Default Page
-```
-
-### 2. Check All Domains (Verbose)
-
-Show all websites including working ones:
-
-```bash
-./checksites.sh -a -v
-```
-
-**Output:**
-```bash
-DOMAIN                                             ISSUE/STATUS                                      
-[+] http://working-site1.com                       200 OK
-[+] http://working-site2.com                       200 OK
-[!] http://problem-site.com                        500 Internal Server Error
-[+] http://another-ok-site.com                     200 OK
-```
-
-### 3. Check Single Domain
-
-```bash
-./checksites.sh -d example.com
-```
-
-**Output:**
-```bash
-DOMAIN                                             ISSUE/STATUS                                      
-[+] http://example.com                             200 OK
-```
-
-Or with problems:
-```bash
-DOMAIN                                             ISSUE/STATUS                                      
-[!] http://example.com                             Cpanel Default Page
-```
-
-### 4. Check by cPanel User
-
-Check all domains owned by a specific cPanel user:
-
-```bash
-./checksites.sh -u username
-```
-
-### 5. Check by Reseller
-
-Check all domains under a specific reseller account:
-
-```bash
-./checksites.sh -r resellername
-```
-
-### 6. Custom Timeout
-
-Useful for slow servers or network issues:
-
-```bash
-./checksites.sh -a -t 15
-```
-
-### 7. Cron Monitoring
-
-Add to crontab for automated monitoring:
-
-```bash
-# Check all sites every hour, email if issues found
-0 * * * * /usr/local/bin/checksites -a > /tmp/sites_check.txt 2>&1 || \
-  cat /tmp/sites_check.txt | mail -s "Site Issues on $(hostname)" admin@example.com
-```
-
-## Detection Capabilities
-
-### DNS Issues
-- **Non-existent domain**: Domain doesn't resolve
-- **External DNS**: Domain points to different server
-
-### HTTP Status Codes
-- `200 OK` - Working (only shown with `-v`)
-- `301/302` - Redirects (shown as issues)
-- `403 Forbidden` - Access denied
-- `404 Not Found` - Missing content
-- `500/502/503` - Server errors
-- `Connection Failed` - Timeout or refused
-
-### Content Detection (Original Patterns by Matthew Harris)
-
-| Pattern | Issue Detected |
-|---------|----------------|
-| `defaultwebpage.cgi` | cPanel Default Page |
-| `Database Error` | Database connection problem |
-| `Account Suspended` | Suspended cPanel account |
-| `Index of /` | Directory listing enabled |
-| `/var/lib/mysql/mysql.sock` | MySQL socket error |
-| `Domain Default Page` | Plesk Default Page |
-| `hacked`, `haxor`, `shell`, `exploit`, `WebShell` | Possible security breach |
-
-## Performance
-
-### Load Average Protection
-
-The script automatically checks server load before running:
-
-```bash
-Load Average: 15.5, cores: 8
-Load Average: 15.5, sleeping for 10 seconds
-Load Average: 12.3, sleeping for 10 seconds
-Load Average: 8.1, sleeping for 10 seconds
-Perhaps, you should fix the load before checking the sites?
-```
-
-If load remains high after 3 attempts, it prompts for confirmation.
-
-### Parallel Processing (Optional Enhancement)
-
-For faster checking on servers with 1000+ domains, you can modify the script to use `xargs` or `parallel`:
-
-```bash
-# Example with xargs (modification needed)
-./checksites.sh -a | xargs -P 10 -I {} check_site {}
-```
-
-## Comparison with Original
-
-| Aspect | Perl Original | Bash Version |
-|--------|---------------|--------------|
-| HTTP requests | `LWP::UserAgent` | `curl` |
-| DNS resolution | `Socket` module | `dig`/`host`/`getent` |
-| Plesk database | `DBI` (Perl DB) | `mysql` CLI |
-| cPanel parsing | Perl regex | `grep`/`sed`/`awk` |
-| Load check | File operations | `cut` on `/proc` |
-| Core count | Parse `/proc/cpuinfo` | `nproc` |
-| Dependencies | Perl modules | Standard Unix tools |
-| Startup time | Slower (Perl interpreter) | Instant |
-| Memory usage | Similar | Similar |
-
-## Troubleshooting
-
-### "Command not found: dig"
-```bash
-# Install DNS utilities
-yum install bind-utils      # CentOS/RHEL
-apt-get install dnsutils    # Ubuntu/Debian
-```
-
-### "mysql: command not found" (Plesk)
-```bash
-# Install MySQL client
-yum install mysql           # CentOS/RHEL
-apt-get install mysql-client # Ubuntu/Debian
-```
-
-### "Permission denied"
-```bash
-# Run as root
-sudo ./checksites.sh -a
-```
-
-### All domains show "Points to X.X.X.X"
-Your server IPs are not being detected correctly. Check:
-```bash
-ip addr show
-# or
-/sbin/ifconfig
-```
-
-### Script hangs on load check
-Server load is very high. Use `-s` to reduce sleep time or fix the load issue first.
-
-## Supported Control Panels
-
-| Panel | Version | Features |
-|-------|---------|----------|
-| **cPanel/WHM** | All versions | Full support (users, resellers, all domains) |
-| **Plesk** | All versions | All domains support (no user/reseller filtering) |
-
-## Credits
-
-- **Original Author**: Matthew Harris (HostGator)
-- **Original Date**: 2013-08-24
-- **Original Version**: 3.5
-- **Bash Rewrite**: 2026
-- **Purpose**: System administration tool for shared hosting servers
-
-## Links
-
-- Original HostGator Wiki: `https://gatorwiki.hostgator.com/Admin/RootBin#checksites`
-- Original Repository: `http://git.toolbox.hostgator.com/checksites`
-
-## Legal Notice
-
-> [!WARNING]
-> This software is provided "as is." Always ensure you have explicit permission before executing it. The author is not responsible for any misuse, legal consequences, or data impact caused by this tool.
 
 ## Detailed Tutorial
 
-For a complete, step-by-step guide, check out my full article:
-
-👉 [**Fast Check sites domains o server**](https://perciocastelo.com.br/blog/fast-check-sites-domains-on-server.html)
+Read the full walkthrough: [**Fast Check Sites & Domains on Server**](https://perciocastelo.com.br/blog/fast-check-sites-domains-on-server.html)
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ---
-
-**Note**: This is an unofficial rewrite and not supported/sponsored by HostGator.
+Author: **Percio Castelo**  
+Contact: [contato@perciocastelo.com.br](mailto:contato@perciocastelo.com.br)  
+Website: [https://perciocastelo.com.br](https://perciocastelo.com.br)
